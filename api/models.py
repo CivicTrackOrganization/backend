@@ -67,7 +67,7 @@ class Report(models.Model):
     created_at = models.DateField(auto_now_add=True)
 
 class ReportStatus(models.Model):
-    report = models.OneToOneField(to=Report, on_delete=models.CASCADE, related_name="status")
+    report = models.ForeignKey(to=Report, on_delete=models.CASCADE, related_name="statuses")
     
     STATUS_CHOICES = [
         (status.value, status.name)
@@ -77,7 +77,10 @@ class ReportStatus(models.Model):
     status_name = models.CharField(max_length=11, choices=STATUS_CHOICES)
     moderator_comment = models.TextField(blank=True, null=True)
     modified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    modified_at = models.DateField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
 
 class Vote(models.Model):
     VOTE_CHOICES = [

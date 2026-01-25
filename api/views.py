@@ -9,11 +9,11 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from api.choices import ReportStatusEnum
 
-from .models import Report, ReportStatus, Vote, Comment
+from .models import Report, ReportStatus, Vote, Comment, UserRole
 from rest_framework import viewsets
 
 from .permissions import IsOwnerOrReadOnly, IsModerator
-from .serializers import CommentSerializer, ReportDetailSerializer, ReportSerializer, SignUpSerializer, SignInSerializer, MeSerializer, VoteSerializer
+from .serializers import CommentSerializer, ReportDetailSerializer, ReportSerializer, SignUpSerializer, SignInSerializer, MeSerializer, VoteSerializer, ChangeStatusSerializer, ReportStatusSerializer
 
 class SignUpView(generics.CreateAPIView):
     serializer_class = SignUpSerializer
@@ -62,7 +62,7 @@ class ReportViewSet(viewsets.ModelViewSet):
         return ReportSerializer
     
     def get_queryset(self):
-        queryset = Report.objects.all().order_by('-created_at').prefetch_related('votes', 'author', 'status')
+        queryset = Report.objects.all().order_by('-created_at').prefetch_related('votes', 'author', 'statuses')
         if self.action == 'retrieve':
             queryset = queryset.prefetch_related('comments')
         return queryset
@@ -96,17 +96,31 @@ class ReportViewSet(viewsets.ModelViewSet):
         serializer = ChangeStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        report.status.status_name = serializer.validated_data['status']
-        report.status.moderator_comment = serializer.validated_data.get('comment', "")
-        report.status.modified_by = request.user
-        report.status.save()
+        ReportStatus.objects.create(
+            report=report,
+            status_name=serializer.validated_data['status'],
+            moderator_comment=serializer.validated_data.get('comment', ""),
+            modified_by=request.user
+        )
         
         if 'assigned_unit' in serializer.validated_data:
             report.assigned_unit = serializer.validated_data['assigned_unit']
             report.save()
         
+        # Clear prefetch cache to ensure the new status is returned in the response
+        if hasattr(report, '_prefetched_objects_cache'):
+            report._prefetched_objects_cache = {}
+
         return Response(ReportSerializer(report).data)
     
+    @extend_schema(responses=ReportStatusSerializer(many=True))
+    @action(detail=True, methods=['get'])
+    def history(self, request, pk=None):
+        report = self.get_object()
+        # Statuses are already ordered by -created_at in model Meta
+        serializer = ReportStatusSerializer(report.statuses.all(), many=True)
+        return Response(serializer.data)
+
 class VoteViewSet(viewsets.ModelViewSet):
     queryset = Vote.objects.all()
     serializer_class = VoteSerializer
@@ -129,7 +143,14 @@ class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
+        is_official = False
+        # Check if user is moderator and if they sent the flag
+        if self.request.user.role == UserRole.MODERATOR:
+            is_official = self.request.data.get('is_official_response', False)
+            if isinstance(is_official, str):
+                is_official = is_official.lower() == 'true'
+
         serializer.save(
             created_by=self.request.user,
-            is_official_response=False # TODO change when user will have role assigned   
+            is_official_response=is_official
         )
