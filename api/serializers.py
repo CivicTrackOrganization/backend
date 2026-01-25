@@ -2,6 +2,7 @@ from .models import Report, User
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.core.validators import MinValueValidator, MaxValueValidator
+from api.choices import ReportStatusEnum, AssignedUnit
 
 class SignUpSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
@@ -28,12 +29,13 @@ class SignInSerializer(serializers.Serializer):
 class MeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name"]
-        read_only_fields = ["id"]
+        fields = ["id", "username", "email", "first_name", "last_name", "role"]
+        read_only_fields = ["id", "role"]
 
 class ReportSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    moderator_comment = serializers.SerializerMethodField()
     coordinates = serializers.ListField(
         child=serializers.FloatField(),
         write_only=True,
@@ -48,9 +50,9 @@ class ReportSerializer(serializers.ModelSerializer):
         model = Report
         fields = [
             'id', 'title', 'description', 'longitude', 'latitude', 'coordinates',
-            'priority', 'type', 'status', 'author', 'assigned_unit', 'created_at'
+            'priority', 'type', 'status', 'moderator_comment', 'author', 'assigned_unit', 'created_at'
         ]
-        read_only_fields = ['longitude', 'latitude', 'status', 'author', 'assigned_unit', 'created_at']
+        read_only_fields = ['longitude', 'latitude', 'status', 'moderator_comment', 'author', 'assigned_unit', 'created_at']
 
     def get_author(self, obj):
         if obj.author:
@@ -60,6 +62,11 @@ class ReportSerializer(serializers.ModelSerializer):
     def get_status(self, obj):
         if obj.status:
             return obj.status.status_name
+        return ""
+    
+    def get_moderator_comment(self, obj):
+        if hasattr(obj, 'status') and obj.status:
+            return obj.status.moderator_comment
         return ""
 
     def create(self, validated_data):
@@ -86,3 +93,8 @@ class ReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Latitude must be between -90 and 90.")
         
         return value
+
+class ChangeStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=[s.value for s in ReportStatusEnum])
+    comment = serializers.CharField(required=False, allow_blank=True)
+    assigned_unit = serializers.ChoiceField(choices=[u.value for u in AssignedUnit], required=False)

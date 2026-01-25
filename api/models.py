@@ -4,6 +4,10 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 
 from api.choices import AssignedUnit, ReportPriority, ReportStatusEnum, ReportType
 
+class UserRole(models.TextChoices):
+    CITIZEN = "citizen", "Citizen"
+    MODERATOR = "moderator", "Moderator"
+
 class User(AbstractUser):
     email = models.EmailField(unique=True)
 
@@ -12,6 +16,12 @@ class User(AbstractUser):
 
     def __str__(self) -> str:
         return self.email
+    
+    role = models.CharField(
+        max_length=20, 
+        choices=UserRole.choices, 
+        default=UserRole.CITIZEN
+    )
 
 class Report(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE)
