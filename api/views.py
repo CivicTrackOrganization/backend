@@ -1,5 +1,7 @@
-from rest_framework import generics, permissions
+from rest_framework import generics, permissions, status
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.contrib.auth import authenticate
+from django.shortcuts import get_object_or_404
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -7,11 +9,11 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 
 from api.choices import ReportStatusEnum
 
-from .models import Report, ReportStatus
+from .models import Report, ReportStatus, Vote, Comment
 from rest_framework import viewsets
 
 from .permissions import IsOwnerOrReadOnly, IsModerator
-from .serializers import ReportSerializer, SignUpSerializer, SignInSerializer, MeSerializer, ChangeStatusSerializer
+from .serializers import CommentSerializer, ReportDetailSerializer, ReportSerializer, SignUpSerializer, SignInSerializer, MeSerializer, VoteSerializer
 
 class SignUpView(generics.CreateAPIView):
     serializer_class = SignUpSerializer
@@ -51,8 +53,19 @@ class MeView(generics.RetrieveUpdateDestroyAPIView):
     retrieve=extend_schema(auth=[{"bearerAuth": []}]),
 )
 class ReportViewSet(viewsets.ModelViewSet):
-    queryset = Report.objects.all().order_by('-created_at')
-    serializer_class = ReportSerializer
+    queryset = Report.objects.all()
+    parser_classes = (MultiPartParser, FormParser)
+
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return ReportDetailSerializer
+        return ReportSerializer
+    
+    def get_queryset(self):
+        queryset = Report.objects.all().order_by('-created_at').prefetch_related('votes', 'author', 'status')
+        if self.action == 'retrieve':
+            queryset = queryset.prefetch_related('comments')
+        return queryset
 
     def get_permissions(self):
         if self.action == 'change_status':
@@ -93,3 +106,30 @@ class ReportViewSet(viewsets.ModelViewSet):
             report.save()
         
         return Response(ReportSerializer(report).data)
+    
+class VoteViewSet(viewsets.ModelViewSet):
+    queryset = Vote.objects.all()
+    serializer_class = VoteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        report_id = self.kwargs.get('pk')
+        return get_object_or_404(
+            Vote,
+            report_id=report_id,
+            created_by=self.request.user
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+class CommentViewSet(viewsets.ModelViewSet):
+    queryset = Comment.objects.all()
+    serializer_class = CommentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(
+            created_by=self.request.user,
+            is_official_response=False # TODO change when user will have role assigned   
+        )

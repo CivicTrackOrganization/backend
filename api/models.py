@@ -14,6 +14,9 @@ class User(AbstractUser):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = ("first_name", "last_name", "username")
 
+    def get_full_name(self):
+        return f"{self.first_name} {self.last_name}"
+
     def __str__(self) -> str:
         return self.email
     
@@ -27,6 +30,8 @@ class Report(models.Model):
     author = models.ForeignKey(User, on_delete=models.CASCADE)
     title = models.CharField(max_length=100)
     description = models.TextField()
+    image = models.ImageField(upload_to='reports/', null=True, blank=True)
+    location = models.CharField(max_length=200, db_default='')
     longitude = models.FloatField(
         validators=[MinValueValidator(-180.0), MaxValueValidator(180.0)],
         db_default=0.0
@@ -73,3 +78,24 @@ class ReportStatus(models.Model):
     moderator_comment = models.TextField(blank=True, null=True)
     modified_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     modified_at = models.DateField(auto_now=True)
+
+class Vote(models.Model):
+    VOTE_CHOICES = [
+        (1, 'Upvote'),
+        (-1, 'Downvote')
+    ]
+    
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='votes')
+    vote_type = models.SmallIntegerField(choices=VOTE_CHOICES)
+    created_at = models.DateField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ('report', 'created_by')
+
+class Comment(models.Model):
+    report = models.ForeignKey(Report, on_delete=models.CASCADE, related_name='comments')
+    content = models.TextField()
+    is_official_response = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
