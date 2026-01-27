@@ -64,7 +64,7 @@ class Report(models.Model):
         max_length=13,
         choices=ASSIGNED_UNIT_CHOICES
     )
-    created_at = models.DateField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 class ReportStatus(models.Model):
     report = models.ForeignKey(to=Report, on_delete=models.CASCADE, related_name="statuses")

@@ -81,7 +81,7 @@ class ReportViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         report = serializer.save(author=self.request.user)
-        ReportStatus.objects.create(report=report, status_name=ReportStatusEnum.NEW.value)
+        ReportStatus.objects.create(report=report, status_name=ReportStatusEnum.NEW.value, modified_by=self.request.user)
 
     @action(detail=False, methods=['get'])
     def me(self, request):
@@ -95,6 +95,14 @@ class ReportViewSet(viewsets.ModelViewSet):
         report = self.get_object()
         serializer = ChangeStatusSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        new_status = serializer.validated_data['status']
+        latest_status = report.statuses.order_by('-created_at').first()
+        if latest_status and latest_status.status_name == new_status:
+            return Response(
+                {"detail": "Report already has this status."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         ReportStatus.objects.create(
             report=report,
