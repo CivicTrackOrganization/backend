@@ -1,7 +1,8 @@
-from .models import Report, User
+from .models import Report, User, Vote, Comment, ReportStatus
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.core.validators import MinValueValidator, MaxValueValidator
+from api.choices import ReportStatusEnum, AssignedUnit
 
 class SignUpSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, validators=[validate_password])
@@ -28,12 +29,19 @@ class SignInSerializer(serializers.Serializer):
 class MeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "username", "email", "first_name", "last_name"]
-        read_only_fields = ["id"]
+        fields = ["id", "username", "email", "first_name", "last_name", "role"]
+        read_only_fields = ["id", "role"]
 
 class ReportSerializer(serializers.ModelSerializer):
     author = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    moderator_comment = serializers.SerializerMethodField()
+    votes_for = serializers.SerializerMethodField()
+    votes_against = serializers.SerializerMethodField()
+    user_vote_type = serializers.SerializerMethodField()
+
+    comment_count = serializers.IntegerField(source='comments.count', read_only=True)
+
     coordinates = serializers.ListField(
         child=serializers.FloatField(),
         write_only=True,
@@ -43,14 +51,13 @@ class ReportSerializer(serializers.ModelSerializer):
         allow_null=False,
         help_text="Format: [longitude, latitude]"
     )
-
+    
     class Meta:
         model = Report
-        fields = [
-            'id', 'title', 'description', 'longitude', 'latitude', 'coordinates',
-            'priority', 'type', 'status', 'author', 'assigned_unit', 'created_at'
-        ]
-        read_only_fields = ['longitude', 'latitude', 'status', 'author', 'assigned_unit', 'created_at']
+
+        fields = ['id', 'title', 'description', 'longitude', 'latitude', 'coordinates', 'location', 'votes_for', 'votes_against', 'user_vote_type', 'comment_count', 'image', 'priority', 'type', 'status', 'moderator_comment', 'author', 'assigned_unit', 'created_at']
+        read_only_fields = ['longitude', 'latitude', 'status', 'votes_for', 'votes_against', 'user_vote_type', 'comment_count', 'moderator_comment', 'author', 'assigned_unit', 'created_at']
+
 
     def get_author(self, obj):
         if obj.author:
@@ -58,10 +65,31 @@ class ReportSerializer(serializers.ModelSerializer):
         return ""
     
     def get_status(self, obj):
-        if obj.status:
-            return obj.status.status_name
+        # Use .all() to leverage prefetch_related cache instead of hitting DB with .first()
+        statuses = obj.statuses.all()
+        if statuses:
+            return statuses[0].status_name
+        return ""
+    
+    def get_moderator_comment(self, obj):
+        statuses = obj.statuses.all()
+        if statuses:
+            return statuses[0].moderator_comment
         return ""
 
+    def get_votes_for(self, obj):
+        return obj.votes.filter(vote_type=1).count()
+    
+    def get_votes_against(self, obj):
+        return obj.votes.filter(vote_type=-1).count()
+    
+    def get_user_vote_type(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            vote = obj.votes.filter(created_by=request.user).first()
+            return vote.vote_type if vote else None
+        return None
+    
     def create(self, validated_data):
         coords = validated_data.pop('coordinates')
         validated_data['longitude'] = coords[0]
@@ -86,3 +114,44 @@ class ReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Latitude must be between -90 and 90.")
         
         return value
+
+class ChangeStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=[s.value for s in ReportStatusEnum])
+    comment = serializers.CharField(required=False, allow_blank=True)
+    assigned_unit = serializers.ChoiceField(choices=[u.value for u in AssignedUnit], required=False)
+    
+class CommentSerializer(serializers.ModelSerializer):
+    created_by = serializers.ReadOnlyField(source='created_by.get_full_name')
+    author_id = serializers.ReadOnlyField(source='created_by.id')
+    class Meta:
+        model = Comment
+        fields = ['id', 'report', 'content', 'is_official_response', 'created_at', 'created_by', 'author_id']
+        read_only_fields = ['is_official_response', 'created_by', 'created_at', 'author_id']
+
+class ReportStatusSerializer(serializers.ModelSerializer):
+    modified_by = serializers.ReadOnlyField(source='modified_by.get_full_name')
+    class Meta:
+        model = ReportStatus
+        fields = ['id', 'status_name', 'moderator_comment', 'modified_by', 'created_at']
+
+class ReportDetailSerializer(ReportSerializer):
+    comments = CommentSerializer(many=True, read_only=True)
+
+    class Meta(ReportSerializer.Meta):
+        fields = ReportSerializer.Meta.fields + ['comments']
+    
+class VoteSerializer(serializers.ModelSerializer):
+    created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
+    class Meta:
+        model = Vote
+        fields = ['id', 'report', 'vote_type', 'created_at', 'created_by']
+        validators = []
+
+    def validate(self, attrs):
+        user = attrs.get('created_by')
+        report = attrs.get('report')
+
+        if Vote.objects.filter(created_by=user, report=report).exists():
+            raise serializers.ValidationError({'message': "You have already voted on this report."})
+        
+        return attrs
