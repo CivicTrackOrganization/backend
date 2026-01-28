@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+import dj_database_url
+import os
 
 load_dotenv()
 
@@ -26,11 +28,20 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:3000'
 ]
 
+CORS_ALLOWED_ORIGINS = os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
+
 CORS_ALLOW_CREDENTIALS = True
 AUTH_USER_MODEL = "api.User"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+DATABASES = {
+    'default': dj_database_url.config(
+        default=os.environ.get('DATABASE_URL', 'postgres://user:pass@localhost:5432/dbname'),
+        conn_max_age=600
+    )
+}
 
 # Application definition
 
