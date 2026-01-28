@@ -10,3 +10,5 @@ django-cors-headers==4.9.0
 drf-spectacular==0.29.0
 drf-spectacular-sidecar==2025.10.1
 pillow==12.1.0
+dj-database-url
+psycopg2-binary
